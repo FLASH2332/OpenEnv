@@ -12,87 +12,44 @@ from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from .models import RagOptimizerAction, RagOptimizerObservation
+from models import RagOptimizerAction, RagOptimizerObservation
 
 
-class RagOptimizerEnv(
-    EnvClient[RagOptimizerAction, RagOptimizerObservation, State]
-):
+class RagOptimizerEnvClient(EnvClient[RagOptimizerAction, RagOptimizerObservation, State]):
     """
     Client for the Rag Optimizer Environment.
-
-    This client maintains a persistent WebSocket connection to the environment server,
-    enabling efficient multi-step interactions with lower latency.
-    Each client instance has its own dedicated environment session on the server.
-
-    Example:
-        >>> # Connect to a running server
-        >>> with RagOptimizerEnv(base_url="http://localhost:8000") as client:
-        ...     result = client.reset()
-        ...     print(result.observation.echoed_message)
-        ...
-        ...     result = client.step(RagOptimizerAction(message="Hello!"))
-        ...     print(result.observation.echoed_message)
-
-    Example with Docker:
-        >>> # Automatically start container and connect
-        >>> client = RagOptimizerEnv.from_docker_image("rag_optimizer-env:latest")
-        >>> try:
-        ...     result = client.reset()
-        ...     result = client.step(RagOptimizerAction(message="Test"))
-        ... finally:
-        ...     client.close()
+    Translates local Pydantic objects to JSON for the OpenEnv WebSocket.
     """
 
     def _step_payload(self, action: RagOptimizerAction) -> Dict:
-        """
-        Convert RagOptimizerAction to JSON payload for step message.
-
-        Args:
-            action: RagOptimizerAction instance
-
-        Returns:
-            Dictionary representation suitable for JSON encoding
-        """
+        """Convert RagOptimizerAction to JSON payload."""
         return {
-            "message": action.message,
+            "action_type": action.action_type,
+            "doc_id": action.doc_id,
+            "text": action.text,
+            "metadata_key": action.metadata_key,
+            "metadata_value": action.metadata_value,
         }
 
     def _parse_result(self, payload: Dict) -> StepResult[RagOptimizerObservation]:
-        """
-        Parse server response into StepResult[RagOptimizerObservation].
-
-        Args:
-            payload: JSON response data from server
-
-        Returns:
-            StepResult with RagOptimizerObservation
-        """
+        """Parse server response back into RagOptimizerObservation."""
         obs_data = payload.get("observation", {})
         observation = RagOptimizerObservation(
-            echoed_message=obs_data.get("echoed_message", ""),
-            message_length=obs_data.get("message_length", 0),
+            message=obs_data.get("message", ""),
+            current_docs=obs_data.get("current_docs", {}),
             done=payload.get("done", False),
-            reward=payload.get("reward"),
+            reward=payload.get("reward", 0.0),
             metadata=obs_data.get("metadata", {}),
         )
 
         return StepResult(
             observation=observation,
-            reward=payload.get("reward"),
+            reward=payload.get("reward", 0.0),
             done=payload.get("done", False),
         )
 
     def _parse_state(self, payload: Dict) -> State:
-        """
-        Parse server response into State object.
-
-        Args:
-            payload: JSON response from state request
-
-        Returns:
-            State object with episode_id and step_count
-        """
+        """Parse the hidden tracking state."""
         return State(
             episode_id=payload.get("episode_id"),
             step_count=payload.get("step_count", 0),
